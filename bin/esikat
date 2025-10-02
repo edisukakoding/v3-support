@@ -1,0 +1,35 @@
+#!/usr/bin/env php
+<?php
+
+function loadAutoload(): void
+{
+    $paths = [
+        __DIR__ . '/vendor/autoload.php',           // saat dijalankan di modul
+        __DIR__ . '/../vendor/autoload.php',        // saat dijalankan langsung dari package
+    ];
+
+    foreach ($paths as $path) {
+        if (file_exists($path)) {
+            require_once $path;
+            return;
+        }
+    }
+
+    fwrite(STDERR, "Autoload file tidak ditemukan.\n");
+    exit(1);
+}
+
+loadAutoload();
+
+use Esikat\Helper\CLI\ActionListCommand;
+use Symfony\Component\Console\Application;
+use Esikat\Helper\CLI\MotivasiCommand;
+use Esikat\Helper\CLI\PageListCommand;
+
+$application = new Application("esikat CLI", "1.0.0");
+
+$application->add(new MotivasiCommand());
+$application->add(new PageListCommand());
+$application->add(new ActionListCommand());
+
+$application->run();
