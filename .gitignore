@@ -2,7 +2,7 @@
 composer.lock
 .env
 tests/_output/
-esikat
+/esikat
 
 # PHPUnit cache files
 .phpunit.result.cache
