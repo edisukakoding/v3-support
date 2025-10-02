@@ -1,0 +1,43 @@
+{
+    "name": "esikat/v3-support",
+    "description": "Package ini bersisi semua fungsionalitas dalam pengembangan esikaterp v3",
+    "version": "v1.0.0",
+    "type": "library",
+    "license": "Apache-2.0",
+    "autoload": {
+        "psr-4": {
+            "Esikat\\Helper\\": "src/",
+            "Esikat\\Helper\\Scripts\\": "scripts/"
+        },
+        "files": [
+            "src/helpers.php"
+        ]
+    },
+    "scripts": {
+        "post-install-cmd": [
+            "Esikat\\Helper\\Scripts\\PostInstall::copyEsikat"
+        ],
+        "post-update-cmd": [
+            "Esikat\\Helper\\Scripts\\PostInstall::copyEsikat"
+        ],
+        "test": "phpunit",
+        "test-dox": "phpunit --testdox"
+    },
+    "authors": [
+        {
+            "name": "Edi Hartono"
+        }
+    ],
+    "require-dev": {
+        "phpunit/phpunit": "^12.0"
+    },
+    "require": {
+        "php": ">=8.1",
+        "vlucas/phpdotenv": "^5.6",
+        "firebase/php-jwt": "^6.11",
+        "edisukakoding/tembung": "^1.0",
+        "symfony/console": "^7.2",
+        "phpoffice/phpspreadsheet": "^5.0"
+    },
+    "bin": ["bin/esikat"]
+}

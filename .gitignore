@@ -1,0 +1,32 @@
+/vendor/
+composer.lock
+.env
+tests/_output/
+esikat
+
+# PHPUnit cache files
+.phpunit.result.cache
+
+# Logs
+/tests/logs/
+
+# Coverage report (jika kamu pakai Xdebug atau PCOV)
+/coverage/
+
+# Temporary files
+*.swp
+*.bak
+*.tmp
+
+# OS specific files
+.DS_Store         # macOS
+Thumbs.db         # Windows
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+
+# PHPUnit-specific generated files (if any)
+phpunit.xml.dist

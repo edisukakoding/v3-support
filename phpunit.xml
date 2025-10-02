@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="vendor/autoload.php" colors="true">
+    
+    <testsuites>
+        <testsuite name="Esikat ERP Helper Unit Tests">
+            <directory suffix="Test.php">tests</directory>
+        </testsuite>
+    </testsuites>
+
+    <logging>
+        <junit outputFile="tests/logs/junit.xml"/>
+        <teamcity outputFile="tests/logs/teamcity.txt"/>
+        <testdoxHtml outputFile="tests/logs/testdox.html"/>
+        <testdoxText outputFile="tests/logs/testdox.txt"/>
+    </logging>
+
+</phpunit>
