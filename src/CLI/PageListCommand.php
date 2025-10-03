@@ -29,7 +29,7 @@ class PageListCommand extends Command
 
         // Fallback kalau URLEncrypt belum ada saat jalan dari CLI.
         if (!function_exists('URLEncrypt')) {
-            function URLEncrypt($url) 
+            function URLEncrypt($url)
             {
                 $key    = $_ENV['APP_KEY'] ?? 'asdasdasd';
                 $token  = $url ^ $key;
@@ -49,8 +49,9 @@ class PageListCommand extends Command
             return Command::SUCCESS;
         }
 
-        $rows       = [];
-        $seenParams = [];
+        $seenParams     = [];
+        $totalPerFile   = [];
+        $renderedCount  = 0;
 
         foreach ($files as $file) {
             $data = require $file;
@@ -76,6 +77,8 @@ class PageListCommand extends Command
                 $normalized = $data;
             }
 
+            // Kumpulkan baris untuk file ini
+            $rows = [];
             foreach ($normalized as $page) {
                 $param  = (string) ($page['param'] ?? '');
                 $sumber = (string) ($page['sumber'] ?? '');
@@ -88,7 +91,7 @@ class PageListCommand extends Command
                 $resolved = $projectRoot . '/' . ltrim($sumber, '/\\');
                 $status   = file_exists($resolved) ? 'OK' : 'MISSING';
 
-                // Tandai duplikasi param
+                // Tandai duplikasi param secara global (antar file juga dicek)
                 $dup = isset($seenParams[$param]) ? 'DUPLICATE' : '';
                 $seenParams[$param] = true;
 
@@ -97,22 +100,46 @@ class PageListCommand extends Command
                     URLEncrypt($param),
                     $sumber,
                     $judul,
-                    $status ?: $dup ?: 'OK',
+                    $dup ?: $status,
                 ];
             }
+
+            if (empty($rows)) {
+                continue;
+            }
+
+            // Urutkan rows per file berdasarkan param
+            usort($rows, fn($a, $b) => strcmp($a[0], $b[0]));
+
+            // Pemisah visual antar file
+            if ($renderedCount > 0) {
+                $output->writeln(''); // baris kosong sebagai pemisah
+            }
+
+            // Header nama file
+            $output->writeln("<info>File: " . basename($file) . "</info>");
+
+            // Render tabel untuk file ini
+            $table = new Table($output);
+            $table->setHeaders(['Param', 'Enkripsi', 'Sumber', 'Judul', 'Status'])
+                  ->setRows($rows)
+                  ->render();
+
+            $totalPerFile[basename($file)] = count($rows);
+            $renderedCount++;
         }
 
-        if (!$rows) {
+        if ($renderedCount === 0) {
             $output->writeln('<comment>Tidak ada halaman yang valid ditemukan.</comment>');
             return Command::SUCCESS;
         }
 
-        // Urutkan berdasarkan param
-        usort($rows, fn($a, $b) => strcmp($a[0], $b[0]));
-
-        $table = new Table($output);
-        $table->setHeaders(['Param', 'Enkripsi', 'Sumber', 'Judul', 'Status'])->setRows($rows);
-        $table->render();
+        // Ringkasan akhir (opsional)
+        $output->writeln('');
+        $output->writeln('<comment>Ringkasan:</comment>');
+        foreach ($totalPerFile as $fname => $cnt) {
+            $output->writeln("- {$fname}: {$cnt} route");
+        }
 
         return Command::SUCCESS;
     }
