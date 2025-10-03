@@ -13,8 +13,8 @@ class ActionListCommand extends Command
     {
         $this
             ->setName('route:actions')
-            ->setDescription('Menampilkan daftar aksi di dalam modul')
-            ->setHelp('Command ini akan menampilkan daftar aksi yang ada di dalam modul');
+            ->setDescription('Menampilkan daftar aksi')
+            ->setHelp('Command ini akan menampilkan daftar aksi');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -29,7 +29,7 @@ class ActionListCommand extends Command
 
         // Fallback jika URLEncrypt belum terdefinisi saat CLI dipanggil di luar konteks web.
         if (!function_exists('URLEncrypt')) {
-            function URLEncrypt($url) 
+            function URLEncrypt($url)
             {
                 $key    = $_ENV['APP_KEY'] ?? 'asdasdasd';
                 $token  = $url ^ $key;
@@ -49,42 +49,66 @@ class ActionListCommand extends Command
             return Command::SUCCESS;
         }
 
-        $rows = [];
+        $renderedCount  = 0;
+        $totalPerFile   = [];
+
         foreach ($files as $file) {
-            // Setiap file harus mengembalikan array: ['kode' => 'path/ke/file.php', ...]
             $data = require $file;
 
             if (!is_array($data)) {
-                // Lewati file yang tidak valid
                 continue;
             }
 
+            $rows = [];
             foreach ($data as $code => $path) {
-                // Samakan perilaku dengan action.php: path relatif dari project root
                 $resolved = is_string($path)
                     ? $projectRoot . '/' . ltrim($path, '/\\')
                     : '';
 
                 $rows[] = [
-                    $code,                 // Kode
-                    URLEncrypt($code),     // Enkripsi
-                    $path,                 // Sumber (relative path seperti yang didefinisikan)
-                    file_exists($resolved) ? 'OK' : 'MISSING', // Status file
+                    $code,
+                    URLEncrypt($code),
+                    $path,
+                    (file_exists($resolved) ? 'OK' : 'MISSING'),
                 ];
             }
+
+            if (empty($rows)) {
+                continue;
+            }
+
+            // Urutkan biar rapi per file
+            usort($rows, fn($a, $b) => strcmp($a[0], $b[0]));
+
+            // Pemisah visual antar file
+            if ($renderedCount > 0) {
+                $output->writeln('');
+            }
+
+            // Header nama file
+            $output->writeln("<info>File: " . basename($file) . "</info>");
+
+            // Render tabel untuk file ini
+            $table = new Table($output);
+            $table->setHeaders(['Kode', 'Enkripsi', 'Sumber', 'Status'])
+                  ->setRows($rows)
+                  ->render();
+
+            $totalPerFile[basename($file)] = count($rows);
+            $renderedCount++;
         }
 
-        if (empty($rows)) {
+        if ($renderedCount === 0) {
             $output->writeln('<comment>Tidak ada aksi yang valid ditemukan.</comment>');
             return Command::SUCCESS;
         }
 
-        // Urutkan biar rapi.
-        usort($rows, fn($a, $b) => strcmp($a[0], $b[0]));
-
-        $table = new Table($output);
-        $table->setHeaders(['Kode', 'Enkripsi', 'Sumber', 'Status'])->setRows($rows);
-        $table->render();
+        // Ringkasan akhir (opsional)
+        $output->writeln('');
+        $output->writeln('<comment>Ringkasan:</comment>');
+        foreach ($totalPerFile as $fname => $cnt) {
+            $output->writeln("- {$fname}: {$cnt} aksi");
+        }
 
         return Command::SUCCESS;
     }

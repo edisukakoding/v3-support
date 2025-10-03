@@ -13,8 +13,8 @@ class PageListCommand extends Command
     {
         $this
             ->setName('route:pages')
-            ->setDescription('Menampilkan daftar halaman di dalam modul')
-            ->setHelp('Command ini akan menampilkan daftar halaman yang ada di dalam modul');
+            ->setDescription('Menampilkan daftar routing halaman')
+            ->setHelp('Command ini akan menampilkan daftar routing halaman');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
