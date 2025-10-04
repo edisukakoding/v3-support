@@ -27,7 +27,7 @@ class ActionListCommand extends Command
             require_once $initPath;
         }
 
-        // Fallback jika URLEncrypt belum terdefinisi saat CLI dipanggil di luar konteks web.
+        // Fallback jika URLEncrypt belum ada (dipanggil via CLI murni).
         if (!function_exists('URLEncrypt')) {
             function URLEncrypt($url)
             {
@@ -49,65 +49,110 @@ class ActionListCommand extends Command
             return Command::SUCCESS;
         }
 
-        $renderedCount  = 0;
-        $totalPerFile   = [];
-
+        // ---- Pass 1: Kumpulkan semua item & hitung frekuensi kode ----
+        $itemsByFile  = [];      // [filename => [ [code, path, resolved]... ]]
+        $countByCode  = [];      // [code => freq]
+        $totalPerFile = [];      // ringkasan
         foreach ($files as $file) {
-            $data = require $file;
+            $basename = basename($file);
+            $data     = require $file;
 
             if (!is_array($data)) {
+                // lewati file yang tidak mengembalikan array routes
                 continue;
             }
 
-            $rows = [];
             foreach ($data as $code => $path) {
-                $resolved = is_string($path)
+                $code = (string) $code;
+                $path = (string) $path;
+
+                $resolved = $path !== ''
                     ? $projectRoot . '/' . ltrim($path, '/\\')
                     : '';
 
-                $rows[] = [
-                    $code,
-                    URLEncrypt($code),
-                    $path,
-                    (file_exists($resolved) ? 'OK' : 'MISSING'),
+                $itemsByFile[$basename][] = [
+                    'code'     => $code,
+                    'path'     => $path,
+                    'resolved' => $resolved,
                 ];
+
+                $countByCode[$code] = ($countByCode[$code] ?? 0) + 1;
             }
 
-            if (empty($rows)) {
-                continue;
-            }
+            $totalPerFile[$basename] = isset($itemsByFile[$basename])
+                ? count($itemsByFile[$basename])
+                : 0;
+        }
 
-            // Urutkan biar rapi per file
-            usort($rows, fn($a, $b) => strcmp($a[0], $b[0]));
+        // Tidak ada item valid sama sekali
+        if (empty($itemsByFile)) {
+            $output->writeln('<comment>Tidak ada aksi yang valid ditemukan.</comment>');
+            return Command::SUCCESS;
+        }
 
-            // Pemisah visual antar file
-            if ($renderedCount > 0) {
+        // ---- Pass 2: Render per file dengan Status yang sudah tahu duplikatnya ----
+        $rendered = 0;
+        $hasDuplicate = false;
+
+        foreach ($itemsByFile as $basename => $items) {
+            if ($rendered > 0) {
                 $output->writeln('');
             }
 
             // Header nama file
-            $output->writeln("<info>File: " . basename($file) . "</info>");
+            $output->writeln("<info>File: {$basename}</info>");
 
-            // Render tabel untuk file ini
+            // Siapkan rows, urutkan berdasarkan code
+            usort($items, fn($a, $b) => strcmp($a['code'], $b['code']));
+
+            $rows = [];
+            foreach ($items as $it) {
+                $exists = ($it['path'] !== '' && file_exists($it['resolved']));
+                $isDup  = ($countByCode[$it['code']] ?? 0) > 1;
+
+                // Tentukan status
+                if ($exists && !$isDup) {
+                    $status = 'OK';
+                } elseif (!$exists && !$isDup) {
+                    $status = 'MISSING';
+                } elseif ($exists && $isDup) {
+                    $status = 'DUPLICATE';
+                } else { // !$exists && $isDup
+                    $status = 'MISSING & DUPLICATE';
+                }
+
+                if ($isDup) {
+                    $hasDuplicate = true;
+                }
+
+                $rows[] = [
+                    $it['code'],
+                    URLEncrypt($it['code']),
+                    $it['path'],
+                    $status,
+                ];
+            }
+
+            // Render tabel
             $table = new Table($output);
             $table->setHeaders(['Kode', 'Enkripsi', 'Sumber', 'Status'])
                   ->setRows($rows)
                   ->render();
 
-            $totalPerFile[basename($file)] = count($rows);
-            $renderedCount++;
+            $rendered++;
         }
 
-        if ($renderedCount === 0) {
-            $output->writeln('<comment>Tidak ada aksi yang valid ditemukan.</comment>');
-            return Command::SUCCESS;
-        }
-
-        // Ringkasan akhir (opsional)
+        // Ringkasan akhir
         $output->writeln('');
         $output->writeln('<comment>Ringkasan:</comment>');
         foreach ($totalPerFile as $fname => $cnt) {
             $output->writeln("- {$fname}: {$cnt} aksi");
+        }
+
+        if ($hasDuplicate) {
+            $output->writeln('');
+            $output->writeln('<error>Duplikat terdeteksi. Pastikan setiap "kode" aksi unik di seluruh file.</error>');
+            return Command::FAILURE; // ubah ke SUCCESS jika hanya ingin warning
         }
 
         return Command::SUCCESS;

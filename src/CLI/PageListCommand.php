@@ -44,30 +44,31 @@ class PageListCommand extends Command
         }
 
         $files = glob($pagesDir . '/*.php') ?: [];
-        if (!$files) {
+        if (empty($files)) {
             $output->writeln('<comment>Tidak ada file pages di src/routes/pages.</comment>');
             return Command::SUCCESS;
         }
 
-        $seenParams     = [];
-        $totalPerFile   = [];
-        $renderedCount  = 0;
+        // -------- Pass 1: Kumpulkan semua item + hitung frekuensi param --------
+        $itemsByFile  = [];   // [basename => [ [param, sumber, judul, resolved]... ]]
+        $countByParam = [];   // [param => freq]
+        $totalPerFile = [];   // ringkasan
 
         foreach ($files as $file) {
-            $data = require $file;
+            $basename = basename($file);
+            $data     = require $file;
 
             if (!is_array($data)) {
                 continue;
             }
 
-            // Normalisasi: dukung juga format associative sederhana: ['kode'=>'path.php']
+            // Normalisasi: dukung juga format associative sederhana: ['kode' => 'path.php']
             $normalized = [];
             $isAssocMap = $data && array_keys($data) !== range(0, count($data) - 1);
 
             if ($isAssocMap) {
                 foreach ($data as $k => $v) {
                     if (is_array($v)) {
-                        // Sudah bentuk lengkap
                         $normalized[] = $v;
                     } else {
                         $normalized[] = ['param' => (string) $k, 'sumber' => (string) $v, 'judul' => ''];
@@ -77,8 +78,6 @@ class PageListCommand extends Command
                 $normalized = $data;
             }
 
-            // Kumpulkan baris untuk file ini
-            $rows = [];
             foreach ($normalized as $page) {
                 $param  = (string) ($page['param'] ?? '');
                 $sumber = (string) ($page['sumber'] ?? '');
@@ -89,56 +88,87 @@ class PageListCommand extends Command
                 }
 
                 $resolved = $projectRoot . '/' . ltrim($sumber, '/\\');
-                $status   = file_exists($resolved) ? 'OK' : 'MISSING';
 
-                // Tandai duplikasi param secara global (antar file juga dicek)
-                $dup = isset($seenParams[$param]) ? 'DUPLICATE' : '';
-                $seenParams[$param] = true;
+                $itemsByFile[$basename][] = [
+                    'param'   => $param,
+                    'sumber'  => $sumber,
+                    'judul'   => $judul,
+                    'resolved'=> $resolved,
+                ];
+
+                $countByParam[$param] = ($countByParam[$param] ?? 0) + 1;
+            }
+
+            $totalPerFile[$basename] = isset($itemsByFile[$basename]) ? count($itemsByFile[$basename]) : 0;
+        }
+
+        if (empty($itemsByFile)) {
+            $output->writeln('<comment>Tidak ada halaman yang valid ditemukan.</comment>');
+            return Command::SUCCESS;
+        }
+
+        // -------- Pass 2: Render tabel per file dengan status yang sudah tahu duplikatnya --------
+        $rendered     = 0;
+        $hasDuplicate = false;
+
+        foreach ($itemsByFile as $basename => $items) {
+            if ($rendered > 0) {
+                $output->writeln('');
+            }
+
+            $output->writeln("<info>File: {$basename}</info>");
+
+            // Urutkan berdasarkan param
+            usort($items, fn($a, $b) => strcmp($a['param'], $b['param']));
+
+            $rows = [];
+            foreach ($items as $it) {
+                $exists = file_exists($it['resolved']);
+                $isDup  = ($countByParam[$it['param']] ?? 0) > 1;
+
+                // Tentukan status
+                if ($exists && !$isDup) {
+                    $status = 'OK';
+                } elseif (!$exists && !$isDup) {
+                    $status = 'MISSING';
+                } elseif ($exists && $isDup) {
+                    $status = 'DUPLICATE';
+                } else { // !$exists && $isDup
+                    $status = 'MISSING & DUPLICATE';
+                }
+
+                if ($isDup) {
+                    $hasDuplicate = true;
+                }
 
                 $rows[] = [
-                    $param,
-                    URLEncrypt($param),
-                    $sumber,
-                    $judul,
-                    $dup ?: $status,
+                    $it['param'],
+                    URLEncrypt($it['param']),
+                    $it['sumber'],
+                    $it['judul'],
+                    $status,
                 ];
             }
 
-            if (empty($rows)) {
-                continue;
-            }
-
-            // Urutkan rows per file berdasarkan param
-            usort($rows, fn($a, $b) => strcmp($a[0], $b[0]));
-
-            // Pemisah visual antar file
-            if ($renderedCount > 0) {
-                $output->writeln(''); // baris kosong sebagai pemisah
-            }
-
-            // Header nama file
-            $output->writeln("<info>File: " . basename($file) . "</info>");
-
-            // Render tabel untuk file ini
             $table = new Table($output);
             $table->setHeaders(['Param', 'Enkripsi', 'Sumber', 'Judul', 'Status'])
                   ->setRows($rows)
                   ->render();
 
-            $totalPerFile[basename($file)] = count($rows);
-            $renderedCount++;
+            $rendered++;
         }
 
-        if ($renderedCount === 0) {
-            $output->writeln('<comment>Tidak ada halaman yang valid ditemukan.</comment>');
-            return Command::SUCCESS;
-        }
-
-        // Ringkasan akhir (opsional)
+        // Ringkasan akhir
         $output->writeln('');
         $output->writeln('<comment>Ringkasan:</comment>');
         foreach ($totalPerFile as $fname => $cnt) {
             $output->writeln("- {$fname}: {$cnt} route");
+        }
+
+        if ($hasDuplicate) {
+            $output->writeln('');
+            $output->writeln('<error>Duplikat terdeteksi. Pastikan setiap "param" unik di seluruh file.</error>');
+            return Command::FAILURE; // ubah ke SUCCESS bila hanya ingin warning
         }
 
         return Command::SUCCESS;
