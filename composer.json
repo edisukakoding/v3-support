@@ -1,7 +1,7 @@
 {
     "name": "esikat/v3-support",
     "description": "Package ini bersisi semua fungsionalitas dalam pengembangan esikaterp v3",
-    "version": "v1.3.0",
+    "version": "v1.3.1",
     "type": "library",
     "license": "Apache-2.0",
     "autoload": {
