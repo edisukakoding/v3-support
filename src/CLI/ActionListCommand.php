@@ -5,6 +5,7 @@ namespace Esikat\Helper\CLI;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class ActionListCommand extends Command
@@ -14,7 +15,13 @@ class ActionListCommand extends Command
         $this
             ->setName('route:actions')
             ->setDescription('Menampilkan daftar aksi')
-            ->setHelp('Command ini akan menampilkan daftar aksi');
+            ->setHelp('Command ini akan menampilkan daftar aksi')
+            ->addOption(
+                'file',
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Hanya tampilkan aksi dari file tertentu (basename, mis. integrasi.php)'
+            );
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -44,6 +51,28 @@ class ActionListCommand extends Command
         }
 
         $files = glob($actionsDir . '/*.php') ?: [];
+
+        // ===== Filter by --file if provided =====
+        $filterFile = (string) ($input->getOption('file') ?? '');
+        if ($filterFile !== '') {
+            $target = strtolower(trim($filterFile));
+            $files = array_values(array_filter($files, function ($f) use ($target) {
+                return strtolower(basename($f)) === $target;
+            }));
+
+            if (empty($files)) {
+                $output->writeln("<error>File '{$filterFile}' tidak ditemukan di src/routes/actions.</error>");
+                $available = glob($actionsDir . '/*.php') ?: [];
+                if (!empty($available)) {
+                    $output->writeln('<comment>File yang tersedia:</comment>');
+                    foreach ($available as $f) {
+                        $output->writeln('- ' . basename($f));
+                    }
+                }
+                return Command::FAILURE;
+            }
+        }
+
         if (empty($files)) {
             $output->writeln('<comment>Tidak ada file actions di src/routes/actions.</comment>');
             return Command::SUCCESS;
@@ -58,8 +87,7 @@ class ActionListCommand extends Command
             $data     = require $file;
 
             if (!is_array($data)) {
-                // lewati file yang tidak mengembalikan array routes
-                continue;
+                continue; // lewati file yang tidak mengembalikan array routes
             }
 
             foreach ($data as $code => $path) {
@@ -99,10 +127,9 @@ class ActionListCommand extends Command
                 $output->writeln('');
             }
 
-            // Header nama file
             $output->writeln("<info>File: {$basename}</info>");
 
-            // Siapkan rows, urutkan berdasarkan code
+            // Urutkan berdasarkan code
             usort($items, fn($a, $b) => strcmp($a['code'], $b['code']));
 
             $rows = [];
@@ -151,7 +178,7 @@ class ActionListCommand extends Command
 
         if ($hasDuplicate) {
             $output->writeln('');
-            $output->writeln('<error>Duplikat terdeteksi. Pastikan setiap "kode" aksi unik di seluruh file.</error>');
+            $output->writeln('<error>Duplikat terdeteksi. Pastikan setiap \"kode\" aksi unik di seluruh file.</error>');
             return Command::FAILURE; // ubah ke SUCCESS jika hanya ingin warning
         }
 
