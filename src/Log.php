@@ -16,6 +16,7 @@ class Log
     public const LOGOUT     = 'LOGOUT';
     public const PRINT      = 'PRINT';
     public const EXPORT     = 'EXPORT';
+    public const CANCEL     = 'CANCEL';
 
     private QueryBuilder    $queryBuilder;
     private string          $tabel;
@@ -71,6 +72,7 @@ class Log
                     self::LOGOUT    => "User @{$this->username} berhasil keluar $subjek",
                     self::PRINT     => "User @{$this->username} mencetak data $subjek",
                     self::EXPORT    => "User @{$this->username} mengkespor data $subjek",
+                    self::CANCEL    => "User @{$this->username} membatalkan data $subjek",
                     default         => "User @{$this->username} melakukan aksi $jenis pada $subjek"
                 }
             ];
