@@ -17,6 +17,8 @@ class QueryBuilder
     private $joins = [];
     private $groupBy;
     private $having = [];
+    protected array $wheres = [];
+
 
     /**
      * Konstruktor untuk inisialisasi koneksi PDO.
@@ -383,8 +385,13 @@ class QueryBuilder
 
             // Coba ambil kembali data berdasarkan data yang disisipkan
             foreach ($data as $key => $value) {
-                $this->where($key, $value);
+                if (is_null($value)) {
+                    $this->whereNull($key);
+                } else {
+                    $this->where($key, $value);
+                }
             }
+
 
             return $this->first();
         }
@@ -393,6 +400,14 @@ class QueryBuilder
         return null;
     }
 
+    public function whereNull($column)
+    {
+        $this->wheres[] = [
+            'type' => 'null',
+            'column' => $column
+        ];
+        return $this;
+    }
 
     /**
      * Memperbarui data di dalam tabel.
