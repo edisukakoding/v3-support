@@ -1,7 +1,7 @@
 {
     "name": "esikat/v3-support",
     "description": "Package ini bersisi semua fungsionalitas dalam pengembangan esikaterp v3",
-    "version": "v1.3.3",
+    "version": "v1.3.4",
     "type": "library",
     "license": "Apache-2.0",
     "autoload": {
@@ -37,5 +37,7 @@
         "symfony/console": "^7.2",
         "phpoffice/phpspreadsheet": "^5.0"
     },
-    "bin": ["bin/esikat"]
+    "bin": [
+        "bin/esikat"
+    ]
 }

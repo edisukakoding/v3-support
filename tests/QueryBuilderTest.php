@@ -126,4 +126,58 @@ class QueryBuilderTest extends TestCase
 
         $this->assertEquals(['active', 'admin', 'user'], $this->queryBuilder->getBindings());
     }
+
+        public function testWhereIn()
+    {
+        $this->queryBuilder->table('users')
+            ->select()
+            ->whereIn('id', [1, 2, 3]);
+
+        $this->assertEquals(
+            'SELECT * FROM users WHERE id IN (?, ?, ?)',
+            $this->queryBuilder->toSql()
+        );
+
+        $this->assertEquals([1, 2, 3], $this->queryBuilder->getBindings());
+    }
+
+            public function testOrWhereIn()
+    {
+        $this->queryBuilder->table('users')
+            ->select()
+            ->where('status', '=', 'active')
+            ->orWhereIn('id', [10, 20, 30]);
+
+        $this->assertEquals(
+            'SELECT * FROM users WHERE status = ? OR id IN (?, ?, ?)',
+            $this->queryBuilder->toSql()
+        );
+
+        $this->assertEquals(['active', 10, 20, 30], $this->queryBuilder->getBindings());
+    }
+
+            public function testCount()
+    {
+        $this->queryBuilder->table('users')->where('status', '=', 'active');
+
+        // Mock PDOStatement
+        $stmtMock = $this->createMock(PDOStatement::class);
+        $stmtMock->expects($this->once())
+            ->method('fetch')
+            ->with(PDO::FETCH_ASSOC)
+            ->willReturn(['aggregate' => 7]);
+
+        // Expect query prepare() terima query COUNT
+        $this->pdo->expects($this->once())
+            ->method('prepare')
+            ->with('SELECT COUNT(*) AS aggregate FROM users WHERE status = ?')
+            ->willReturn($stmtMock);
+
+        // Eksekusi count()
+        $result = $this->queryBuilder->count();
+
+        $this->assertEquals(7, $result);
+    }
+
+
 }

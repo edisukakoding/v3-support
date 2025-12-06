@@ -479,4 +479,77 @@ class QueryBuilder
         $this->reset();
         return $result;
     }
+
+    /**
+     * Menambahkan kondisi WHERE IN pada query.
+     *
+     * @param string $column Nama kolom.
+     * @param array $values Daftar nilai untuk kondisi IN.
+     * @param bool $not Apakah menggunakan NOT IN.
+     * 
+     * @return self
+     */
+    public function whereIn(string $column, array $values, bool $not = false): self
+    {
+        if (empty($values)) return $this; // Jika array kosong, abaikan kondisi
+
+        $placeholders = implode(', ', array_fill(0, count($values), '?'));
+        $condition = (empty($this->conditions) ? "" : "AND ") .
+            "$column " . ($not ? "NOT IN" : "IN") . " ($placeholders)";
+
+        $this->conditions[] = $condition;
+        $this->bindings = array_merge($this->bindings, $values);
+
+        return $this;
+    }
+
+    /**
+     * Menambahkan kondisi OR WHERE IN pada query.
+     *
+     * @param string $column Nama kolom.
+     * @param array $values Daftar nilai.
+     * @param bool $not Menggunakan OR NOT IN.
+     * 
+     * @return self
+     */
+    public function orWhereIn(string $column, array $values, bool $not = false): self
+    {
+        if (empty($values)) return $this;
+
+        $placeholders = implode(', ', array_fill(0, count($values), '?'));
+        $condition = (empty($this->conditions) ? "" : "OR ") .
+            "$column " . ($not ? "NOT IN" : "IN") . " ($placeholders)";
+
+        $this->conditions[] = $condition;
+        $this->bindings = array_merge($this->bindings, $values);
+
+        return $this;
+    }
+
+    /**
+     * Menghitung jumlah record berdasarkan query yang dibangun.
+     *
+     * @param string $column Kolom yang akan dihitung (default: *)
+     * 
+     * @return int Jumlah data
+     */
+    public function count(string $column = '*'): int
+    {
+        // Backup query state
+        $originalColumns = $this->columns;
+
+        // Ganti SELECT menjadi COUNT
+        $this->columns = "COUNT($column) AS aggregate";
+
+        $sql = $this->toSql();
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($this->bindings);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        // Restore
+        $this->columns = $originalColumns;
+
+        $this->reset();
+        return (int) ($result['aggregate'] ?? 0);
+    }
 }
