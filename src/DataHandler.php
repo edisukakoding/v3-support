@@ -23,7 +23,7 @@ class DataHandler
      * @param string $join Query join tambahan (default: '').
      * @param string $explicitWhere Kondisi tambahan yang ditetapkan secara eksplisit.
      *
-     * @return string JSON data sesuai dengan format DataTable.
+     * @return array Array data sesuai dengan format DataTable.
      */
     public function datatable(
         string $table,
