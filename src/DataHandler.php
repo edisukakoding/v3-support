@@ -39,9 +39,36 @@ class DataHandler
         $length = $_GET['length'] ?? -1;
         $searchValue = $_GET['search']['value'] ?? '';
 
-        $columnIndex = $_GET['order'][0]['column'] ?? 0;
-        $columnName = $columns[$columnIndex] ?? $primaryKey;
-        $columnOrder = $_GET['order'][0]['dir'] ?? 'asc';
+        // ==== 1. Logic Multi-Column Order (BARU) ====
+        $orderQueryParts = [];
+        
+        if (!empty($_GET['order']) && is_array($_GET['order'])) {
+            foreach ($_GET['order'] as $order) {
+                $columnIndex = (int)$order['column'];
+                $columnDir = strtoupper($order['dir']) === 'DESC' ? 'DESC' : 'ASC';
+
+                // Pastikan index kolom valid
+                if (isset($columns[$columnIndex])) {
+                    $rawColumn = $columns[$columnIndex];
+                    
+                    // Bersihkan 'AS alias' agar query ORDER BY valid
+                    // Contoh: "users.name AS nama_lengkap" menjadi "users.name"
+                    // Atau jika database mendukung alias di ORDER BY, Anda bisa pakai aliasnya.
+                    // Di sini kita pakai kolom aslinya agar aman.
+                    $columnName = preg_replace('/\s+AS\s+\w+$/i', '', $rawColumn);
+                    
+                    $orderQueryParts[] = "$columnName $columnDir";
+                }
+            }
+        }
+
+        // Default order jika user tidak melakukan sorting
+        if (empty($orderQueryParts)) {
+            $orderQueryParts[] = "$primaryKey ASC";
+        }
+
+        $orderClause = " ORDER BY " . implode(', ', $orderQueryParts);
+        // ============================================
 
         $whereConditions = [];
         $params = [];
@@ -86,7 +113,7 @@ class DataHandler
             }
             $stmt->execute();
             $filteredRecords = $stmt->fetchColumn();
-            $totalRecords = $filteredRecords;
+            $totalRecords = $filteredRecords; 
         } else {
             $sql = "SELECT COUNT($primaryKey) FROM $table $join";
             $totalRecords = $this->pdo->query($sql)->fetchColumn();
@@ -104,7 +131,10 @@ class DataHandler
         $sql = "SELECT " . implode(", ", $columns) . " FROM $table $join $whereClause";
         if (!empty($groupBy)) $sql .= " GROUP BY $groupBy";
         if (!empty($having)) $sql .= " HAVING $having";
-        $sql .= " ORDER BY $columnName $columnOrder";
+        
+        // Masukkan Order Clause yang sudah dibuat di atas
+        $sql .= $orderClause;
+
         if ($length != -1) {
             $sql .= " LIMIT :start, :length";
         }
