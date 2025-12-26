@@ -44,6 +44,11 @@ class SpreadsheetBuilder
             }
             $rowIndex++;
         }
+
+        // Auto width kolom
+        foreach ($config as $col) {
+            $sheet->getColumnDimension($col['koordinat'])->setAutoSize(true);
+        }
     }
 
     public function download(string $filename = 'export.xlsx'): void
