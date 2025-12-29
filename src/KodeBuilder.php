@@ -218,4 +218,59 @@ class KodeBuilder
         return "{$prefixKategori}{$noakhirStr}";
     }
 
+    /**
+     * Mengambil data kode entitas berdasarkan prefix dan periode.
+     */
+    private function getKodeEntitas(string $prefix, string $periode): ?array
+    {
+        return $this->queryBuilder
+            ->table('rnotransaksi')
+            ->where('kdusaha', '=', $this->kdusaha)
+            ->where('prefix', '=', $prefix)
+            ->where('tanggal', '=', $periode)
+            ->first();
+    }
+
+    /**
+     * Preview kode entitas dengan format PREFIX-YYYYMM-NNNN.
+     */
+    public function previewKodeEntitas(string $prefix): string
+    {
+        $periode = $this->tanggal; // ✅ Pakai property yang sudah ada
+        $data = $this->getKodeEntitas($prefix, $periode);
+        $noakhir = $data ? intval($data['noakhir']) + 1 : 1;
+
+        return "{$prefix}{$periode}" . $this->generateNomor($noakhir, 4);
+    }
+
+    /**
+     * Buat dan simpan kode entitas dengan format PREFIX-YYYYMM-NNNN.
+     */
+    public function buatKodeEntitas(string $prefix): string
+    {
+        $usaha = $this->getUsaha();
+        $periode = $this->tanggal; // ✅ Pakai property yang sudah ada
+        $data = $this->getKodeEntitas($prefix, $periode);
+        $noakhir = $data ? intval($data['noakhir']) + 1 : 1;
+
+        if ($data) {
+            $this->queryBuilder->table('rnotransaksi')
+                ->where('kdusaha', '=', $this->kdusaha)
+                ->where('prefix', '=', $prefix)
+                ->where('tanggal', '=', $periode)
+                ->update(['noakhir' => $noakhir]);
+        } else {
+            $this->queryBuilder->table('rnotransaksi')->insert([
+                'kdusaha' => $this->kdusaha,
+                'tanggal' => $periode, // ✅ Sekarang konsisten
+                'prefix' => $prefix,
+                'singkatan' => $usaha['singkatan'],
+                'noakhir' => $noakhir,
+                'asaldata' => 'web',
+            ]);
+        }
+
+        return "{$prefix}{$periode}" . $this->generateNomor($noakhir, 4);
+    }
+
 }
