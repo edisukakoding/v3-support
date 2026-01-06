@@ -9,9 +9,23 @@ class DataHandler
 {
     private PDO $pdo;
 
+    /**
+     * Daftar kolom yang harus diperlakukan sebagai DATETIME saat ORDER BY
+     * Contoh: ['orders.created_at', 'users.last_login']
+     */
+    private array $datetimeColumns = [];
+
     public function __construct(PDO $pdo)
     {
         $this->pdo = $pdo;
+    }
+
+    /**
+     * Optional: set kolom datetime
+     */
+    public function setDatetimeColumns(array $columns): void
+    {
+        $this->datetimeColumns = $columns;
     }
 
     /**
@@ -34,42 +48,44 @@ class DataHandler
         string $groupBy = '',
         string $having = ''
     ) {
-        $draw = $_GET['draw'] ?? 1;
-        $start = $_GET['start'] ?? 0;
+        $draw   = $_GET['draw'] ?? 1;
+        $start  = $_GET['start'] ?? 0;
         $length = $_GET['length'] ?? -1;
         $searchValue = $_GET['search']['value'] ?? '';
 
-        // ==== 1. Logic Multi-Column Order (BARU) ====
+        /* ===================== ORDER BY (MULTI COLUMN + DATETIME FIX) ===================== */
         $orderQueryParts = [];
-        
+
         if (!empty($_GET['order']) && is_array($_GET['order'])) {
             foreach ($_GET['order'] as $order) {
                 $columnIndex = (int)$order['column'];
-                $columnDir = strtoupper($order['dir']) === 'DESC' ? 'DESC' : 'ASC';
+                $dir = strtoupper($order['dir']) === 'DESC' ? 'DESC' : 'ASC';
 
-                // Pastikan index kolom valid
-                if (isset($columns[$columnIndex])) {
-                    $rawColumn = $columns[$columnIndex];
-                    
-                    // Bersihkan 'AS alias' agar query ORDER BY valid
-                    // Contoh: "users.name AS nama_lengkap" menjadi "users.name"
-                    // Atau jika database mendukung alias di ORDER BY, Anda bisa pakai aliasnya.
-                    // Di sini kita pakai kolom aslinya agar aman.
-                    $columnName = preg_replace('/\s+AS\s+\w+$/i', '', $rawColumn);
-                    
-                    $orderQueryParts[] = "$columnName $columnDir";
+                if (!isset($columns[$columnIndex])) {
+                    continue;
+                }
+
+                // Hilangkan alias AS
+                $rawColumn = $columns[$columnIndex];
+                $columnName = preg_replace('/\s+AS\s+\w+$/i', '', $rawColumn);
+
+                // DATETIME FIX
+                if (in_array($columnName, $this->datetimeColumns, true)) {
+                    $orderQueryParts[] = "CAST($columnName AS DATETIME) $dir";
+                } else {
+                    $orderQueryParts[] = "$columnName $dir";
                 }
             }
         }
 
-        // Default order jika user tidak melakukan sorting
         if (empty($orderQueryParts)) {
             $orderQueryParts[] = "$primaryKey ASC";
         }
 
-        $orderClause = " ORDER BY " . implode(', ', $orderQueryParts);
-        // ============================================
+        $orderClause = ' ORDER BY ' . implode(', ', $orderQueryParts);
+        /* ================================================================================ */
 
+        /* ===================== WHERE & SEARCH ===================== */
         $whereConditions = [];
         $params = [];
 
@@ -82,57 +98,75 @@ class DataHandler
         }
 
         if (!empty($searchValue)) {
-            $searchConditions = [];
+            $searchParts = [];
             foreach ($columns as $col) {
                 $colOnly = preg_replace('/\s+AS\s+\w+$/i', '', $col);
                 if (stripos($colOnly, '(') === false) {
-                    $searchConditions[] = "$colOnly LIKE :search";
+                    $searchParts[] = "$colOnly LIKE :search";
                 }
             }
-
-            $whereConditions[] = '(' . implode(' OR ', $searchConditions) . ')';
-            $params[':search'] = "%$searchValue%";
+            if ($searchParts) {
+                $whereConditions[] = '(' . implode(' OR ', $searchParts) . ')';
+                $params[':search'] = "%$searchValue%";
+            }
         }
 
         if (!empty($explicitWhere)) {
             $whereConditions[] = "($explicitWhere)";
         }
 
-        $whereClause = !empty($whereConditions) ? 'WHERE ' . implode(' AND ', $whereConditions) : '';
+        $whereClause = $whereConditions
+            ? ' WHERE ' . implode(' AND ', $whereConditions)
+            : '';
+        /* ========================================================== */
 
-        // ==== Perhitungan recordsTotal dan recordsFiltered ====
-        if (!empty($groupBy)) {
-            $baseSQL = "SELECT " . implode(", ", $columns) . " FROM $table $join $whereClause GROUP BY $groupBy";
-            if (!empty($having)) {
+        /* ===================== RECORD COUNT ===================== */
+        if ($groupBy) {
+            $baseSQL = "SELECT " . implode(', ', $columns) . "
+                        FROM $table $join $whereClause
+                        GROUP BY $groupBy";
+
+            if ($having) {
                 $baseSQL .= " HAVING $having";
             }
-            $countSQL = "SELECT COUNT(*) FROM ($baseSQL) AS grouped";
-            $stmt = $this->pdo->prepare($countSQL);
-            foreach ($params as $key => $value) {
-                $stmt->bindValue($key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
-            }
-            $stmt->execute();
-            $filteredRecords = $stmt->fetchColumn();
-            $totalRecords = $filteredRecords; 
-        } else {
-            $sql = "SELECT COUNT($primaryKey) FROM $table $join";
-            $totalRecords = $this->pdo->query($sql)->fetchColumn();
 
-            $sql = "SELECT COUNT($primaryKey) FROM $table $join $whereClause";
-            $stmt = $this->pdo->prepare($sql);
-            foreach ($params as $key => $value) {
-                $stmt->bindValue($key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+            $countSQL = "SELECT COUNT(*) FROM ($baseSQL) AS t";
+            $stmt = $this->pdo->prepare($countSQL);
+            foreach ($params as $k => $v) {
+                $stmt->bindValue($k, $v);
             }
             $stmt->execute();
-            $filteredRecords = $stmt->fetchColumn();
+            $recordsFiltered = $stmt->fetchColumn();
+            $recordsTotal = $recordsFiltered;
+        } else {
+            $recordsTotal = $this->pdo
+                ->query("SELECT COUNT($primaryKey) FROM $table $join")
+                ->fetchColumn();
+
+            $stmt = $this->pdo->prepare(
+                "SELECT COUNT($primaryKey) FROM $table $join $whereClause"
+            );
+            foreach ($params as $k => $v) {
+                $stmt->bindValue($k, $v);
+            }
+            $stmt->execute();
+            $recordsFiltered = $stmt->fetchColumn();
+        }
+        /* ======================================================== */
+
+        /* ===================== MAIN DATA QUERY ===================== */
+        $sql = "SELECT " . implode(', ', $columns) . "
+                FROM $table $join
+                $whereClause";
+
+        if ($groupBy) {
+            $sql .= " GROUP BY $groupBy";
         }
 
-        // ==== Ambil data utama ====
-        $sql = "SELECT " . implode(", ", $columns) . " FROM $table $join $whereClause";
-        if (!empty($groupBy)) $sql .= " GROUP BY $groupBy";
-        if (!empty($having)) $sql .= " HAVING $having";
-        
-        // Masukkan Order Clause yang sudah dibuat di atas
+        if ($having) {
+            $sql .= " HAVING $having";
+        }
+
         $sql .= $orderClause;
 
         if ($length != -1) {
@@ -140,21 +174,25 @@ class DataHandler
         }
 
         $stmt = $this->pdo->prepare($sql);
-        foreach ($params as $key => $value) {
-            $stmt->bindValue($key, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
+
+        foreach ($params as $k => $v) {
+            $stmt->bindValue($k, $v);
         }
+
         if ($length != -1) {
             $stmt->bindValue(':start', (int)$start, PDO::PARAM_INT);
             $stmt->bindValue(':length', (int)$length, PDO::PARAM_INT);
         }
+
         $stmt->execute();
         $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        /* ========================================================== */
 
         return [
-            'draw' => (int)$draw,
-            'recordsTotal' => (int)$totalRecords,
-            'recordsFiltered' => (int)$filteredRecords,
-            'data' => $data
+            'draw'            => (int)$draw,
+            'recordsTotal'    => (int)$recordsTotal,
+            'recordsFiltered' => (int)$recordsFiltered,
+            'data'            => $data
         ];
     }
 
