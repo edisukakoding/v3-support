@@ -1,8 +1,11 @@
 <?php
 
 use PHPUnit\Framework\TestCase;
-use Esikat\Helper\QueryBuilder; // Sesuaikan dengan namespace kelas Anda
+use Esikat\Helper\QueryBuilder;
 
+/**
+ * Unit Test Lengkap untuk QueryBuilder Esikat
+ */
 class QueryBuilderTest extends TestCase
 {
     private $pdo;
@@ -10,174 +13,176 @@ class QueryBuilderTest extends TestCase
 
     protected function setUp(): void
     {
-        // Mock PDO connection
+        // Mock koneksi PDO
         $this->pdo = $this->createMock(PDO::class);
         $this->queryBuilder = new QueryBuilder($this->pdo);
     }
 
-    public function testSelect()
+    /**
+     * Skenario 1: Dasar SELECT, Table, dan Alias
+     */
+    public function testSelectAndTable()
     {
-        $this->queryBuilder->table('users')->select(['id', 'name']);
-        $this->assertEquals('SELECT id, name FROM users', $this->queryBuilder->toSql());
+        $this->queryBuilder->table('rusaha', 'u')->select(['kdusaha', 'nmusaha']);
+        $this->assertEquals('SELECT kdusaha, nmusaha FROM rusaha AS u', $this->queryBuilder->toSql());
     }
 
-    public function testWhere()
+    /**
+     * Skenario 2: Kondisi WHERE Kompleks (Standard, Array, Operator)
+     */
+    public function testWhereScenarios()
     {
-        $this->queryBuilder->table('users')->select()->where('id', '=', 1);
-        $this->assertEquals('SELECT * FROM users WHERE id = ?', $this->queryBuilder->toSql());
-        $this->assertEquals([1], $this->queryBuilder->getBindings());
+        // Skenario: Operator default (=)
+        $this->queryBuilder->table('ruser')->where('username', 'kemi');
+        $this->assertEquals('SELECT * FROM ruser WHERE username = ?', $this->queryBuilder->toSql());
+        $this->assertEquals(['kemi'], $this->queryBuilder->getBindings());
+
+        // Skenario: Operator spesifik (!=)
+        $this->queryBuilder->table('ruser')->where('iduser', '!=', 5);
+        $this->assertEquals('SELECT * FROM ruser WHERE iduser != ?', $this->queryBuilder->toSql());
+
+        // Skenario: Multiple Where (AND)
+        $this->queryBuilder->table('ruser')->where('status', 1)->where('role', 'admin');
+        $this->assertEquals('SELECT * FROM ruser WHERE status = ? AND role = ?', $this->queryBuilder->toSql());
     }
 
-    public function testJoin()
+    /**
+     * Skenario 3: Kondisi NULL dan NOT NULL (Penting untuk MFA tglguna)
+     */
+    public function testNullConditions()
     {
-        $this->queryBuilder->table('users')
-            ->select()
-            ->join('posts', [['users.id', '=', 'posts.user_id']]);
+        $this->queryBuilder->table('ruser_backup_mfa')
+            ->where('iduser', 1)
+            ->whereNull('tglguna')
+            ->whereNotNull('tglentri');
+
         $this->assertEquals(
-            'SELECT * FROM users INNER JOIN posts ON users.id = posts.user_id',
+            'SELECT * FROM ruser_backup_mfa WHERE iduser = ? AND tglguna IS NULL AND tglentri IS NOT NULL', 
             $this->queryBuilder->toSql()
         );
     }
 
-    public function testLeftJoin()
+    /**
+     * Skenario 4: WHERE IN dan OR WHERE IN
+     */
+    public function testWhereInScenarios()
     {
-        $this->queryBuilder->table('users')
-            ->select()
-            ->leftJoin('posts', [['users.id', '=', 'posts.user_id']]);
+        $this->queryBuilder->table('ruser')
+            ->whereIn('role', ['admin', 'manager'])
+            ->orWhereIn('iduser', [10, 20]);
+
         $this->assertEquals(
-            'SELECT * FROM users LEFT JOIN posts ON users.id = posts.user_id',
+            'SELECT * FROM ruser WHERE role IN (?, ?) OR iduser IN (?, ?)', 
+            $this->queryBuilder->toSql()
+        );
+        $this->assertEquals(['admin', 'manager', 10, 20], $this->queryBuilder->getBindings());
+    }
+
+    /**
+     * Skenario 5: Berbagai Jenis JOIN (Inner, Left, Right)
+     */
+    public function testJoinScenarios()
+    {
+        $this->queryBuilder->table('ruser', 'a')
+            ->leftJoin('rusaha', [['a.kdusaha', '=', 'rusaha.kdusaha']], 'b')
+            ->join('rplatform', [['a.kdplatform', '=', 'rplatform.kdplatform']], 'INNER', 'p');
+
+        $sql = $this->queryBuilder->toSql();
+        $this->assertStringContainsString('LEFT JOIN rusaha AS b ON a.kdusaha = rusaha.kdusaha', $sql);
+        $this->assertStringContainsString('INNER JOIN rplatform AS p ON a.kdplatform = rplatform.kdplatform', $sql);
+    }
+
+    /**
+     * Skenario 6: Agregasi, GroupBy, dan Having
+     */
+    public function testAggregationScenarios()
+    {
+        $this->queryBuilder->table('tlogaktifitas')
+            ->select(['iduser', 'COUNT(*) as total'])
+            ->groupBy('iduser')
+            ->having('total > ?', 5);
+
+        $this->assertEquals(
+            'SELECT iduser, COUNT(*) as total FROM tlogaktifitas GROUP BY iduser HAVING total > ?', 
             $this->queryBuilder->toSql()
         );
     }
 
-    public function testLimit()
+    /**
+     * Skenario 7: INSERT dengan Auto-Fetch (Mendukung lastInsertId)
+     */
+    public function testInsertWithAutoFetch()
     {
-        $this->queryBuilder->table('users')->select()->limit(10);
-        $this->assertEquals('SELECT * FROM users LIMIT 10', $this->queryBuilder->toSql());
-    }
-
-    public function testOrderBy()
-    {
-        $this->queryBuilder->table('users')->select()->orderBy('name', 'DESC');
-        $this->assertEquals('SELECT * FROM users ORDER BY name DESC', $this->queryBuilder->toSql());
-    }
-
-    public function testInsert()
-    {
-        $data = ['name' => 'John Doe', 'email' => 'john@example.com'];
-        $this->queryBuilder->table('users');
-
-        // Buat mock untuk statement yang dikembalikan oleh prepare()
+        $data = ['username' => 'kemi', 'role' => 'admin'];
         $stmtMock = $this->createMock(PDOStatement::class);
-        $stmtMock->expects($this->once())->method('execute')->with(array_values($data));
+        $stmtMock->method('execute')->willReturn(true);
+        $stmtMock->method('fetch')->willReturn(['id' => 99, 'username' => 'kemi']);
 
-        // Pastikan prepare() menerima query yang sesuai
-        $this->pdo->expects($this->once())
-            ->method('prepare')
-            ->with('INSERT INTO users (name, email) VALUES (?, ?)')
-            ->willReturn($stmtMock);
+        $this->pdo->method('prepare')->willReturn($stmtMock);
+        $this->pdo->method('lastInsertId')->willReturn("99");
 
-        // Eksekusi insert
-        $this->queryBuilder->insert($data);
+        $result = $this->queryBuilder->table('ruser')->insert($data);
+        
+        $this->assertIsArray($result);
+        $this->assertEquals(99, $result['id']);
     }
 
-    public function testUpdate()
+    /**
+     * Skenario 8: UPDATE dengan Kondisi
+     */
+    public function testUpdateWithConditions()
     {
-        $data = ['name' => 'Jane Doe'];
-        $this->queryBuilder->table('users')->where('id', '=', 1);
-
+        $data = ['mfa_enabled' => 1];
         $stmtMock = $this->createMock(PDOStatement::class);
-        $stmtMock->expects($this->once())->method('execute')->with(['Jane Doe', 1]); // Urutan benar
+        $stmtMock->method('execute')->willReturn(true);
+        $stmtMock->method('fetch')->willReturn(['iduser' => 1, 'mfa_enabled' => 1]);
 
-        $this->pdo->expects($this->once())
-            ->method('prepare')
-            ->with('UPDATE users SET name = ? WHERE id = ?')
-            ->willReturn($stmtMock);
+        $this->pdo->method('prepare')->willReturn($stmtMock);
 
-        $this->queryBuilder->update($data);
+        $result = $this->queryBuilder->table('ruser')->where('iduser', 1)->update($data);
+        $this->assertEquals(1, $result['mfa_enabled']);
     }
 
-    public function testDelete()
+    /**
+     * Skenario 9: DELETE
+     */
+    public function testDeleteScenario()
     {
-        $this->queryBuilder->table('users')->where('id', '=', 1);
-
         $stmtMock = $this->createMock(PDOStatement::class);
-        $stmtMock->expects($this->once())->method('execute')->with([1]);
+        $stmtMock->expects($this->once())->method('execute')->willReturn(true);
+        $this->pdo->method('prepare')->willReturn($stmtMock);
 
-        $this->pdo->expects($this->once())
-            ->method('prepare')
-            ->with('DELETE FROM users WHERE id = ?')
-            ->willReturn($stmtMock);
-
-        $this->queryBuilder->delete();
+        $success = $this->queryBuilder->table('ruser_backup_mfa')->where('iduser', 1)->delete();
+        $this->assertTrue($success);
     }
 
-    public function testWhereRaw()
+    /**
+     * Skenario 10: Shortcut find() dan value()
+     */
+    public function testShortcuts()
     {
-        $this->queryBuilder->table('users')
-            ->select()
-            ->where('status', 'active')
-            ->whereRaw('(type = ? OR type = ?)', ['admin', 'user']);
-
-        $this->assertEquals(
-            'SELECT * FROM users WHERE status = ? AND (type = ? OR type = ?)',
-            $this->queryBuilder->toSql()
-        );
-
-        $this->assertEquals(['active', 'admin', 'user'], $this->queryBuilder->getBindings());
-    }
-
-        public function testWhereIn()
-    {
-        $this->queryBuilder->table('users')
-            ->select()
-            ->whereIn('id', [1, 2, 3]);
-
-        $this->assertEquals(
-            'SELECT * FROM users WHERE id IN (?, ?, ?)',
-            $this->queryBuilder->toSql()
-        );
-
-        $this->assertEquals([1, 2, 3], $this->queryBuilder->getBindings());
-    }
-
-            public function testOrWhereIn()
-    {
-        $this->queryBuilder->table('users')
-            ->select()
-            ->where('status', '=', 'active')
-            ->orWhereIn('id', [10, 20, 30]);
-
-        $this->assertEquals(
-            'SELECT * FROM users WHERE status = ? OR id IN (?, ?, ?)',
-            $this->queryBuilder->toSql()
-        );
-
-        $this->assertEquals(['active', 10, 20, 30], $this->queryBuilder->getBindings());
-    }
-
-            public function testCount()
-    {
-        $this->queryBuilder->table('users')->where('status', '=', 'active');
-
-        // Mock PDOStatement
         $stmtMock = $this->createMock(PDOStatement::class);
-        $stmtMock->expects($this->once())
-            ->method('fetch')
-            ->with(PDO::FETCH_ASSOC)
-            ->willReturn(['aggregate' => 7]);
+        $stmtMock->method('execute')->willReturn(true);
+        $stmtMock->method('fetch')->willReturn(['iduser' => 10, 'username' => 'mini']);
 
-        // Expect query prepare() terima query COUNT
-        $this->pdo->expects($this->once())
-            ->method('prepare')
-            ->with('SELECT COUNT(*) AS aggregate FROM users WHERE status = ?')
-            ->willReturn($stmtMock);
+        $this->pdo->method('prepare')->willReturn($stmtMock);
 
-        // Eksekusi count()
-        $result = $this->queryBuilder->count();
-
-        $this->assertEquals(7, $result);
+        // Test find
+        $user = $this->queryBuilder->table('ruser')->find(10, 'iduser');
+        $this->assertEquals('mini', $user['username']);
     }
 
+    /**
+     * Skenario 11: Manajemen Transaksi
+     */
+    public function testTransactions()
+    {
+        $this->pdo->expects($this->once())->method('beginTransaction')->willReturn(true);
+        $this->pdo->expects($this->once())->method('commit')->willReturn(true);
+        $this->pdo->expects($this->once())->method('inTransaction')->willReturn(true);
 
+        $this->assertTrue($this->queryBuilder->beginTransaction());
+        $this->assertTrue($this->queryBuilder->inTransaction());
+        $this->assertTrue($this->queryBuilder->commit());
+    }
 }

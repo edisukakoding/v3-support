@@ -3,7 +3,12 @@
 namespace Esikat\Helper;
 
 use PDO;
+use Exception;
 
+/**
+ * Class QueryBuilder
+ * Helper untuk membangun query SQL secara dinamis menggunakan PDO.
+ */
 class QueryBuilder
 {
     private $pdo;
@@ -17,13 +22,9 @@ class QueryBuilder
     private $joins = [];
     private $groupBy;
     private $having = [];
-    protected array $wheres = [];
-
 
     /**
      * Konstruktor untuk inisialisasi koneksi PDO.
-     *
-     * @param PDO $pdo Koneksi PDO untuk mengakses database.
      */
     public function __construct(PDO $pdo)
     {
@@ -47,14 +48,6 @@ class QueryBuilder
         $this->having = [];
     }
 
-    /**
-     * Menentukan tabel yang akan digunakan dalam query.
-     *
-     * @param string $table Nama tabel.
-     * @param string|null $alias Alias tabel (opsional).
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
     public function table(string $table, ?string $alias = null): self
     {
         $this->reset();
@@ -62,13 +55,6 @@ class QueryBuilder
         return $this;
     }
 
-    /**
-     * Menentukan kolom yang akan diambil dalam query.
-     *
-     * @param mixed $columns Kolom yang akan dipilih (default: semua kolom).
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
     public function select($columns = '*'): self
     {
         if (is_array($columns)) {
@@ -79,89 +65,85 @@ class QueryBuilder
         return $this;
     }
 
-    /**
-     * Menambahkan kondisi WHERE pada query.
-     *
-     * @param string|array $column Nama kolom atau array kondisi.
-     * @param string|null $operator Operator perbandingan (e.g., '=', '<', '>').
-     * @param mixed $value Nilai yang akan dibandingkan (jika $column adalah string).
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
     public function where(string|array $column, ?string $operator = null, mixed $value = null): self
     {
         if (is_array($column)) {
             foreach ($column as $col => $val) {
-                $this->conditions[] = (empty($this->conditions) ? "" : "AND ") . "$col = ?";
-                $this->bindings[] = $val;
+                $this->where($col, '=', $val);
             }
-        } else {
-            if ($value === null) {
-                $value = $operator;
-                $operator = "=";
-            }
-            $this->conditions[] = (empty($this->conditions) ? "" : "AND ") . "$column $operator ?";
-            $this->bindings[] = $value;
+            return $this;
         }
+
+        if (func_num_args() === 2) {
+            $value = $operator;
+            $operator = "=";
+        }
+
+        $prefix = empty($this->conditions) ? "" : "AND ";
+        $this->conditions[] = "{$prefix}{$column} {$operator} ?";
+        $this->bindings[] = $value;
+        
         return $this;
     }
 
-
-
-    /**
-     * Menambahkan kondisi OR WHERE pada query.
-     *
-     * @param string|array $column Nama kolom atau array kondisi.
-     * @param string|null $operator Operator perbandingan (e.g., '=', '<', '>').
-     * @param mixed $value Nilai yang akan dibandingkan.
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
-    public function orWhere(string|array $column, ?string $operator = null, mixed $value = null): self
+    public function orWhere(string $column, ?string $operator = null, mixed $value = null): self
     {
-        if (is_array($column)) {
-            foreach ($column as $col => $val) {
-                $this->conditions[] = (empty($this->conditions) ? "" : "OR ") . "$col = ?";
-                $this->bindings[] = $val;
-            }
-        } else {
-            if ($value === null) {
-                $value = $operator;
-                $operator = "=";
-            }
-            $this->conditions[] = (empty($this->conditions) ? "" : "OR ") . "$column $operator ?";
-            $this->bindings[] = $value;
+        if (func_num_args() === 2) {
+            $value = $operator;
+            $operator = "=";
         }
+
+        $prefix = empty($this->conditions) ? "" : "OR ";
+        $this->conditions[] = "{$prefix}{$column} {$operator} ?";
+        $this->bindings[] = $value;
+        
         return $this;
     }
 
-    /**
-     * Menambahkan kondisi OR WHERE pada query.
-     *
-     * @param string    $raw Raw Query.
-     * @param array     $binding value (e.g., '=', '<', '>').
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
+    public function whereNull(string $column): self
+    {
+        $prefix = empty($this->conditions) ? "" : "AND ";
+        $this->conditions[] = "{$prefix}{$column} IS NULL";
+        return $this;
+    }
+
+    public function whereNotNull(string $column): self
+    {
+        $prefix = empty($this->conditions) ? "" : "AND ";
+        $this->conditions[] = "{$prefix}{$column} IS NOT NULL";
+        return $this;
+    }
+
+    public function whereIn(string $column, array $values, bool $not = false): self
+    {
+        if (empty($values)) return $this;
+        $placeholders = implode(', ', array_fill(0, count($values), '?'));
+        $operator = $not ? "NOT IN" : "IN";
+        $prefix = empty($this->conditions) ? "" : "AND ";
+        $this->conditions[] = "{$prefix}{$column} {$operator} ({$placeholders})";
+        $this->bindings = array_merge($this->bindings, $values);
+        return $this;
+    }
+
+    public function orWhereIn(string $column, array $values, bool $not = false): self
+    {
+        if (empty($values)) return $this;
+        $placeholders = implode(', ', array_fill(0, count($values), '?'));
+        $operator = $not ? "NOT IN" : "IN";
+        $prefix = empty($this->conditions) ? "" : "OR ";
+        $this->conditions[] = "{$prefix}{$column} {$operator} ({$placeholders})";
+        $this->bindings = array_merge($this->bindings, $values);
+        return $this;
+    }
+
     public function whereRaw(string $raw, array $bindings = []): self
     {
-        $this->conditions[] = (empty($this->conditions) ? "" : "AND ") . $raw;
+        $prefix = empty($this->conditions) ? "" : "AND ";
+        $this->conditions[] = "{$prefix}{$raw}";
         $this->bindings = array_merge($this->bindings, $bindings);
         return $this;
     }
 
-
-
-    /**
-     * Menambahkan join (INNER, LEFT, RIGHT) pada query.
-     *
-     * @param string $table Nama tabel yang akan di-join.
-     * @param array $conditions Kondisi join yang akan digunakan.
-     * @param string $type Jenis join (default: 'INNER').
-     * @param string|null $alias Alias untuk tabel yang di-join (opsional).
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
     public function join(string $table, array $conditions, string $type = 'INNER', ?string $alias = null): self
     {
         $aliasClause = $alias ? " AS $alias" : '';
@@ -174,90 +156,22 @@ class QueryBuilder
         return $this;
     }
 
-    /**
-     * Menambahkan LEFT JOIN pada query.
-     *
-     * @param string $table Nama tabel yang akan di-join.
-     * @param array $conditions Kondisi join yang akan digunakan.
-     * @param string|null $alias Alias untuk tabel yang di-join (opsional).
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
     public function leftJoin(string $table, array $conditions, ?string $alias = null): self
     {
-        if ($alias) {
-            $table = "$table $alias";
-        }
-        return $this->join($table, $conditions, 'LEFT');
+        return $this->join($table, $conditions, 'LEFT', $alias);
     }
 
-    /**
-     * Menambahkan RIGHT JOIN pada query.
-     *
-     * @param string $table Nama tabel yang akan di-join.
-     * @param array $conditions Kondisi join yang akan digunakan.
-     * @param string|null $alias Alias untuk tabel yang di-join (opsional).
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
     public function rightJoin(string $table, array $conditions, ?string $alias = null): self
     {
-        if ($alias) {
-            $table = "$table $alias";
-        }
-        return $this->join($table, $conditions, 'RIGHT');
+        return $this->join($table, $conditions, 'RIGHT', $alias);
     }
 
-    /**
-     * Menambahkan limit pada query.
-     *
-     * @param int $limit Jumlah data yang akan dibatasi.
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
-    public function limit(int $limit): self
+    public function groupBy($columns): self
     {
-        $this->limit = $limit;
+        $this->groupBy = is_array($columns) ? implode(', ', $columns) : $columns;
         return $this;
     }
 
-    /**
-     * Menambahkan offset pada query.
-     *
-     * @param int $offset Posisi data mulai diambil.
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
-    public function offset(int $offset): self
-    {
-        $this->offset = $offset;
-        return $this;
-    }
-    /**
-     * Menambahkan GROUP BY pada query.
-     *
-     * @param string|array $columns Kolom yang akan digunakan untuk pengelompokan.
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
-    public function groupBy(string|array $columns): self
-    {
-        if (is_array($columns)) {
-            $this->groupBy = implode(', ', $columns);
-        } else {
-            $this->groupBy = $columns;
-        }
-        return $this;
-    }
-
-    /**
-     * Menambahkan kondisi HAVING pada query.
-     *
-     * @param string $condition Kondisi HAVING (misalnya: "COUNT(id) > ?").
-     * @param mixed $value Nilai parameter untuk kondisi.
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
     public function having(string $condition, mixed $value): self
     {
         $this->having[] = $condition;
@@ -265,26 +179,45 @@ class QueryBuilder
         return $this;
     }
 
-
-    /**
-     * Menambahkan pengurutan data pada query.
-     *
-     * @param string $column Kolom yang akan diurutkan.
-     * @param string $direction Arah pengurutan ('ASC' atau 'DESC').
-     * 
-     * @return self Instance dari QueryBuilder.
-     */
     public function orderBy(string $column, string $direction = 'ASC'): self
     {
         $this->orderBy = "$column $direction";
         return $this;
     }
 
+    public function limit(int $limit): self
+    {
+        $this->limit = $limit;
+        return $this;
+    }
+
+    public function offset(int $offset): self
+    {
+        $this->offset = $offset;
+        return $this;
+    }
+
     /**
-     * Menjalankan query dan mengembalikan hasil dalam bentuk array.
-     *
-     * @return array Hasil query dalam bentuk array asosiatif.
+     * Mendapatkan binding parameter yang sedang aktif.
      */
+    public function getBindings(): array
+    {
+        return $this->bindings;
+    }
+
+    public function toSql(): string
+    {
+        $sql = "SELECT {$this->columns} FROM {$this->table}";
+        if ($this->joins) $sql .= ' ' . implode(' ', $this->joins);
+        if ($this->conditions) $sql .= " WHERE " . implode(' ', $this->conditions);
+        if ($this->groupBy) $sql .= " GROUP BY {$this->groupBy}";
+        if ($this->having) $sql .= " HAVING " . implode(' AND ', $this->having);
+        if ($this->orderBy) $sql .= " ORDER BY {$this->orderBy}";
+        if ($this->limit) $sql .= " LIMIT {$this->limit}";
+        if ($this->offset) $sql .= " OFFSET {$this->offset}";
+        return $sql;
+    }
+
     public function get(): array
     {
         $sql = $this->toSql();
@@ -295,14 +228,9 @@ class QueryBuilder
         return $result;
     }
 
-    /**
-     * Menjalankan query dan mengembalikan hasil pertama.
-     *
-     * @return array|null Hasil query pertama atau null jika tidak ada.
-     */
     public function first(): ?array
     {
-        $sql = $this->toSql() . ' LIMIT 1';
+        $sql = $this->toSql() . " LIMIT 1";
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($this->bindings);
         $result = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
@@ -310,246 +238,73 @@ class QueryBuilder
         return $result;
     }
 
-    /**
-     * Menghasilkan query SQL dalam bentuk string.
-     *
-     * @return string Query SQL lengkap.
-     */
-    public function toSql(): string
+    public function find($id, string $primaryKey = 'id'): ?array
     {
-        $sql = "SELECT {$this->columns} FROM {$this->table}";
-
-        if ($this->joins) {
-            $sql .= ' ' . implode(' ', $this->joins);
-        }
-
-        if ($this->conditions) {
-            $conditions = implode(' ', $this->conditions);
-            $conditions = preg_replace('/\b(AND|OR)\s+(AND|OR)\b/', '$2', $conditions); // Hapus "AND AND" atau "OR AND"
-            $sql .= " WHERE " . $conditions;
-        }
-
-        if ($this->groupBy) {
-            $sql .= " GROUP BY {$this->groupBy}";
-        }
-
-        if ($this->having) {
-            $sql .= " HAVING " . implode(' AND ', $this->having);
-        }
-
-        if ($this->orderBy) {
-            $sql .= " ORDER BY {$this->orderBy}";
-        }
-        if ($this->limit) {
-            $sql .= " LIMIT {$this->limit}";
-        }
-        if ($this->offset) {
-            $sql .= " OFFSET {$this->offset}";
-        }
-
-        return $sql;
+        return $this->where($primaryKey, $id)->first();
     }
 
-
-
-    /**
-     * Mendapatkan semua binding parameter untuk query.
-     *
-     * @return array Daftar parameter binding.
-     */
-    public function getBindings(): array
+    public function count(string $column = '*'): int
     {
-        return $this->bindings;
+        $this->columns = "COUNT($column) AS aggregate";
+        $sql = $this->toSql();
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($this->bindings);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        $this->reset();
+        return (int) ($result['aggregate'] ?? 0);
     }
 
-    /**
-     * Menyisipkan data baru ke dalam tabel.
-     *
-     * @param array $data Data yang akan disisipkan (kolom => nilai).
-     * 
-     * @return bool Status eksekusi query.
-     */
     public function insert(array $data): ?array
     {
         $columns = implode(', ', array_keys($data));
         $placeholders = implode(', ', array_fill(0, count($data), '?'));
         $sql = "INSERT INTO {$this->table} ({$columns}) VALUES ({$placeholders})";
-
         $stmt = $this->pdo->prepare($sql);
         $result = $stmt->execute(array_values($data));
-
         if ($result) {
-            $table = explode(' ', $this->table)[0]; // Buang alias
-            $this->reset();
-            $this->table($table);
-
-            // Coba ambil kembali data berdasarkan data yang disisipkan
-            foreach ($data as $key => $value) {
-                if (is_null($value)) {
-                    $this->whereNull($key);
-                } else {
-                    $this->where($key, $value);
-                }
-            }
-
-
-            return $this->first();
+            $lastId = $this->pdo->lastInsertId();
+            $tableName = explode(' ', $this->table)[0];
+            return $lastId ? $this->table($tableName)->find($lastId) : null;
         }
-
-        $this->reset();
         return null;
     }
 
-    public function whereNull($column)
-    {
-        $this->wheres[] = [
-            'type' => 'null',
-            'column' => $column
-        ];
-        return $this;
-    }
-
-    /**
-     * Memperbarui data di dalam tabel.
-     *
-     * @param array $data Data yang akan diperbarui (kolom => nilai).
-     * 
-     * @return bool Status eksekusi query.
-     */
     public function update(array $data): ?array
     {
         $setClauses = [];
-        $updateBindings = [];
-
+        $updateValues = [];
         foreach ($data as $column => $value) {
             $setClauses[] = "$column = ?";
-            $updateBindings[] = $value;
+            $updateValues[] = $value;
         }
-
+        $currentConditions = $this->conditions;
+        $currentBindings = $this->bindings;
         $sql = "UPDATE {$this->table} SET " . implode(', ', $setClauses);
-
-        if ($this->conditions) {
-            $sql .= " WHERE " . implode(' ', $this->conditions);
-        }
-
+        if ($currentConditions) $sql .= " WHERE " . implode(' ', $currentConditions);
         $stmt = $this->pdo->prepare($sql);
-        $bindings = array_merge($updateBindings, $this->bindings);
-        $result = $stmt->execute($bindings);
-
+        $result = $stmt->execute(array_merge($updateValues, $currentBindings));
         if ($result) {
-            // Simpan table dan kondisi sebelum reset
-            $table = $this->table;
-            $conditions = $this->conditions;
-            $bindings = $this->bindings;
-
-            $this->reset();
-            $this->table($table); // pakai kembali nama tabel
-            foreach ($conditions as $cond) {
-                preg_match('/(\w+)\s*=\s*\?/', $cond, $match);
-                if (isset($match[1])) {
-                    $this->where($match[1], array_shift($bindings));
-                }
-            }
-
-            return $this->first();
+            $tableName = explode(' ', $this->table)[0];
+            $qb = $this->table($tableName);
+            $qb->conditions = $currentConditions;
+            $qb->bindings = $currentBindings;
+            return $qb->first();
         }
-
-        $this->reset();
         return null;
     }
 
-
-    /**
-     * Menghapus data dari tabel.
-     *
-     * @return bool Status eksekusi query.
-     */
     public function delete(): bool
     {
         $sql = "DELETE FROM {$this->table}";
-
-        if ($this->conditions) {
-            $conditions = implode(' ', $this->conditions);
-            $conditions = preg_replace('/\b(AND|OR)\s+(AND|OR)\b/', '$2', $conditions); // Fix format WHERE
-            $sql .= " WHERE " . $conditions;
-        }
-
+        if ($this->conditions) $sql .= " WHERE " . implode(' ', $this->conditions);
         $stmt = $this->pdo->prepare($sql);
         $result = $stmt->execute($this->bindings);
         $this->reset();
         return $result;
     }
 
-    /**
-     * Menambahkan kondisi WHERE IN pada query.
-     *
-     * @param string $column Nama kolom.
-     * @param array $values Daftar nilai untuk kondisi IN.
-     * @param bool $not Apakah menggunakan NOT IN.
-     * 
-     * @return self
-     */
-    public function whereIn(string $column, array $values, bool $not = false): self
-    {
-        if (empty($values)) return $this; // Jika array kosong, abaikan kondisi
-
-        $placeholders = implode(', ', array_fill(0, count($values), '?'));
-        $condition = (empty($this->conditions) ? "" : "AND ") .
-            "$column " . ($not ? "NOT IN" : "IN") . " ($placeholders)";
-
-        $this->conditions[] = $condition;
-        $this->bindings = array_merge($this->bindings, $values);
-
-        return $this;
-    }
-
-    /**
-     * Menambahkan kondisi OR WHERE IN pada query.
-     *
-     * @param string $column Nama kolom.
-     * @param array $values Daftar nilai.
-     * @param bool $not Menggunakan OR NOT IN.
-     * 
-     * @return self
-     */
-    public function orWhereIn(string $column, array $values, bool $not = false): self
-    {
-        if (empty($values)) return $this;
-
-        $placeholders = implode(', ', array_fill(0, count($values), '?'));
-        $condition = (empty($this->conditions) ? "" : "OR ") .
-            "$column " . ($not ? "NOT IN" : "IN") . " ($placeholders)";
-
-        $this->conditions[] = $condition;
-        $this->bindings = array_merge($this->bindings, $values);
-
-        return $this;
-    }
-
-    /**
-     * Menghitung jumlah record berdasarkan query yang dibangun.
-     *
-     * @param string $column Kolom yang akan dihitung (default: *)
-     * 
-     * @return int Jumlah data
-     */
-    public function count(string $column = '*'): int
-    {
-        // Backup query state
-        $originalColumns = $this->columns;
-
-        // Ganti SELECT menjadi COUNT
-        $this->columns = "COUNT($column) AS aggregate";
-
-        $sql = $this->toSql();
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($this->bindings);
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        // Restore
-        $this->columns = $originalColumns;
-
-        $this->reset();
-        return (int) ($result['aggregate'] ?? 0);
-    }
+    public function beginTransaction() { return $this->pdo->beginTransaction(); }
+    public function commit() { return $this->pdo->commit(); }
+    public function rollBack() { return $this->pdo->rollBack(); }
+    public function inTransaction() { return $this->pdo->inTransaction(); }
 }
