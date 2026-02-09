@@ -113,7 +113,7 @@ class QueryBuilderTest extends TestCase
      */
     public function testInsertWithAutoFetch()
     {
-        $data = ['username' => 'kemi', 'role' => 'admin'];
+        $data = ['username' => 'kemi'];
         $stmtMock = $this->createMock(PDOStatement::class);
         $stmtMock->method('execute')->willReturn(true);
         $stmtMock->method('fetch')->willReturn(['id' => 99, 'username' => 'kemi']);
@@ -125,6 +125,26 @@ class QueryBuilderTest extends TestCase
         
         $this->assertIsArray($result);
         $this->assertEquals(99, $result['id']);
+    }
+
+    /**
+     * Skenario 7b: INSERT pada tabel TANPA ID (Misal tabel log atau custom PK)
+     * Query Builder tidak boleh error, dan harus mengembalikan true.
+     */
+    public function testInsertWithoutAutoId()
+    {
+        $data = ['kdusaha' => 'ABC', 'nmusaha' => 'Usaha'];
+        $stmtMock = $this->createMock(PDOStatement::class);
+        $stmtMock->method('execute')->willReturn(true);
+
+        $this->pdo->method('prepare')->willReturn($stmtMock);
+        // Simulasi lastInsertId mengembalikan 0 atau false
+        $this->pdo->method('lastInsertId')->willReturn("0");
+
+        $result = $this->queryBuilder->table('rusaha')->insert($data);
+        
+        // Karena tidak ada ID untuk di-fetch, hasilnya harus boolean true
+        $this->assertTrue($result);
     }
 
     /**
@@ -167,7 +187,7 @@ class QueryBuilderTest extends TestCase
 
         $this->pdo->method('prepare')->willReturn($stmtMock);
 
-        // Test find
+        // Cari menggunakan 'iduser' secara eksplisit
         $user = $this->queryBuilder->table('ruser')->find(10, 'iduser');
         $this->assertEquals('mini', $user['username']);
     }

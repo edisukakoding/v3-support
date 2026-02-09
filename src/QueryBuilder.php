@@ -254,18 +254,27 @@ class QueryBuilder
         return (int) ($result['aggregate'] ?? 0);
     }
 
-    public function insert(array $data): ?array
+    public function insert(array $data, string $primaryKey = 'id'): mixed
     {
         $columns = implode(', ', array_keys($data));
         $placeholders = implode(', ', array_fill(0, count($data), '?'));
         $sql = "INSERT INTO {$this->table} ({$columns}) VALUES ({$placeholders})";
+        
         $stmt = $this->pdo->prepare($sql);
         $result = $stmt->execute(array_values($data));
+        
         if ($result) {
             $lastId = $this->pdo->lastInsertId();
-            $tableName = explode(' ', $this->table)[0];
-            return $lastId ? $this->table($tableName)->find($lastId) : null;
+            
+            // Jika ada lastInsertId, kita ambil datanya menggunakan $primaryKey yang spesifik
+            if ($lastId && $lastId !== "0") {
+                $tableName = explode(' ', $this->table)[0];
+                return $this->table($tableName)->find($lastId, $primaryKey);
+            }
+            
+            return true;
         }
+        
         return null;
     }
 
